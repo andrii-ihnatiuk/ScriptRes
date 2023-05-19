@@ -1,8 +1,11 @@
 ﻿using Microsoft.Win32;
+using ScriptRes.Models;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media.Imaging;
 
 namespace ScriptRes
 {
@@ -11,12 +14,9 @@ namespace ScriptRes
     /// </summary>
     public partial class MainWindow : Window
     {
-        private readonly IconUtil iconUtil;
-
         public MainWindow()
         {
             InitializeComponent();
-            iconUtil = new IconUtil(control: imgIcon);
         }
 
         private void Window_Loaded(object sender, RoutedEventArgs e)
@@ -27,27 +27,47 @@ namespace ScriptRes
         }
 
         // Handler for buttons which select file locations
-        private void Browse_Click(object sender, RoutedEventArgs e)
+        private void BtnBrowse_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button btn) return;
 
-            OpenFileDialog openFileDialog = new OpenFileDialog
-            {
-                Filter = "All Files (*.*)|*.*"
-            };
+            OpenFileDialog openFileDialog = new OpenFileDialog { Filter = "All Files (*.*)|*.*" };
+
             if (btn == btnChangeQresPath && openFileDialog.ShowDialog() == true)
             {
                 tBoxQresPath.Text = openFileDialog.FileName;
             }
-            if (btn == btnBrowseExec && openFileDialog.ShowDialog() == true)
+            else if (btn == btnBrowseExec && openFileDialog.ShowDialog() == true)
             {
+                // In case the file was deleted or moved after selection
+                if (File.Exists(openFileDialog.FileName) == false)
+                {
+                    MessageBox.Show("Provided program executable doesn't exist or not a file!", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
                 tBoxExecPath.Text = openFileDialog.FileName;
-                iconUtil.DisplayIcon(openFileDialog.FileName);
+
+                // Get all icons associated with a file
+                var extractedIcons = IconUtil.ExtractAllIcons(openFileDialog.FileName);
+                // Display all icons in ListBox
+
+                var itemsSource = new List<IconListItem>();
+                for (int i = 0; i < extractedIcons.Length; i++)
+                {
+                    var imageSource = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(
+                        extractedIcons[i].Handle,
+                        Int32Rect.Empty,
+                        BitmapSizeOptions.FromEmptyOptions());
+
+                    itemsSource.Add(new IconListItem(i, imageSource));
+                }
+                listBoxIcons.ItemsSource = itemsSource;
+                tBoxExtractedIcons.Text = itemsSource.Count > 0 ? "Select the icon" : "Couldn't extract icons";
             }
         }
 
         // Handler for script generation button
-        private void Create_Click(object sender, RoutedEventArgs e)
+        private void BtnCreate_Click(object sender, RoutedEventArgs e)
         {
             string inX = tBoxInX.Text;
             string inY = tBoxInY.Text;
@@ -61,17 +81,9 @@ namespace ScriptRes
                 return;
             }
 
-            if (File.Exists(execPath))
+            if (File.Exists(execPath) == false)
             {
-                // Allow using relative path in program executable location textbox
-                if (Path.IsPathFullyQualified(execPath) == false)
-                {
-                    execPath = Path.GetFullPath(execPath);
-                }
-            }
-            else
-            {
-                MessageBox.Show("Provided program executable doesn't exist or not a file!", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Provided program executable doesn't exist or not a file!", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -85,7 +97,7 @@ namespace ScriptRes
             }
             else
             {
-                MessageBox.Show("Provided QRes.exe location doesn't exist or the file is wrong!", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Provided QRes.exe location doesn't exist or the file is wrong!", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -124,13 +136,9 @@ namespace ScriptRes
                 string batchLocation = Path.Combine(desktopPath, $"{execNameNoExt}.bat");
                 File.WriteAllText(batchLocation, script);
                 string saveLocation = Environment.CurrentDirectory;
-
-                bool iconSaved = iconUtil.SaveIcon(saveLocation);
-                string? iconPath = iconSaved ? iconUtil.SavedIconPath : null; 
-                
-                CreateShortcut(desktopPath, batchLocation, iconPath, execNameNoExt);
-                
-                MessageBox.Show($"The shortcut was created: \n{desktopPath}\\{execNameNoExt}.lnk", "Success", MessageBoxButton.OK, MessageBoxImage.Asterisk);
+               
+                CreateShortcut(desktopPath, batchLocation, execPath, execNameNoExt);
+                MessageBox.Show($"The shortcut was created: \n{desktopPath}\\{execNameNoExt}.lnk", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
@@ -153,19 +161,17 @@ namespace ScriptRes
             string location = Path.Combine(shortcutPath, $"{name}.lnk");
             var shortcut = (IWshRuntimeLibrary.IWshShortcut)shell.CreateShortcut(location);
 
-            shortcut.TargetPath = targetPath;
-            if (string.IsNullOrEmpty(iconPath))
+            if (listBoxIcons.SelectedItem is IconListItem selectedIcon)
             {
-                if (File.Exists("default.ico"))
-                {
-                    shortcut.IconLocation = Path.GetFullPath("default.ico");
-                }
+                iconPath += $",{selectedIcon.Id}";
             }
-            else
+
+            shortcut.TargetPath = targetPath;
+            shortcut.Description = "This shortcut was generated by ScriptRes";
+            if (string.IsNullOrEmpty(iconPath) == false)
             {
                 shortcut.IconLocation = iconPath;
             }
-
             shortcut.Save();
         }
     }
