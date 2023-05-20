@@ -14,6 +14,8 @@ namespace ScriptRes
     /// </summary>
     public partial class MainWindow : Window
     {
+        private string _iconsSource = string.Empty;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -26,43 +28,64 @@ namespace ScriptRes
             chBoxQresPath.Unchecked += CheckBox_Checked;
         }
 
-        // Handler for buttons which select file locations
+        // Handler for buttons to select file locations
         private void BtnBrowse_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button btn) return;
 
-            OpenFileDialog openFileDialog = new OpenFileDialog { Filter = "All Files (*.*)|*.*" };
-
-            if (btn == btnChangeQresPath && openFileDialog.ShowDialog() == true)
+            if (btn == btnChangeQresPath)
             {
-                tBoxQresPath.Text = openFileDialog.FileName;
+                OpenFileDialog openFileDialog = new OpenFileDialog { Filter = "Executable files (*.exe)|*.exe" };
+                if (openFileDialog.ShowDialog() == true)
+                {
+                    tBoxQresPath.Text = openFileDialog.FileName;
+                }
             }
-            else if (btn == btnBrowseExec && openFileDialog.ShowDialog() == true)
+            else if (btn == btnBrowseExec || btn == btnCustomIcon)
             {
-                // In case the file was deleted or moved after selection
-                if (File.Exists(openFileDialog.FileName) == false)
+                string filter = btn == btnBrowseExec ? "All files (*.*)|*.*" : "Files with icons (*.ico;*.exe;*.dll)|*.ico;*.exe;*.dll";
+                OpenFileDialog openFileDialog = new OpenFileDialog { Filter = filter };
+                if (openFileDialog.ShowDialog() == true)
                 {
-                    MessageBox.Show("Provided program executable doesn't exist or not a file!", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
+                    _iconsSource = openFileDialog.FileName;
+                    if (btn == btnBrowseExec)
+                    {
+                        tBoxExecPath.Text = openFileDialog.FileName;
+                    }
+                    // Get all icons associated with a file
+                    System.Drawing.Icon[] extractedIcons;
+                    try
+                    {
+                        extractedIcons = IconUtil.ExtractAllIcons(_iconsSource);
+                    }
+                    catch (FileNotFoundException exc) 
+                    {
+                        MessageBox.Show($"An error occured while extracting icons from the file.\nDetails: {exc.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        return;
+                    }
+                    
+                    // Display all icons in ListBox
+                    var itemsSource = new List<IconListItem>();
+                    for (int i = 0; i < extractedIcons.Length; i++)
+                    {
+                        var imageSource = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(
+                            extractedIcons[i].Handle,
+                            Int32Rect.Empty,
+                            BitmapSizeOptions.FromEmptyOptions());
+
+                        itemsSource.Add(new IconListItem(i, imageSource));
+                    }
+                    listBoxIcons.ItemsSource = itemsSource;
+                    listBoxIcons.SelectedIndex = 0; // first element is auto-selected
+
+                    tBoxExtractedIcons.Text = itemsSource.Count > 0 ? "Select the icon" : "Couldn't extract icons";
+                    tBoxShortcutName.IsEnabled = true;
+                    if (btn == btnBrowseExec)
+                    {
+                        tBoxShortcutName.Text = Path.GetFileNameWithoutExtension(_iconsSource);
+                    }
+                    btnCustomIcon.Visibility = Visibility.Visible;
                 }
-                tBoxExecPath.Text = openFileDialog.FileName;
-
-                // Get all icons associated with a file
-                var extractedIcons = IconUtil.ExtractAllIcons(openFileDialog.FileName);
-                // Display all icons in ListBox
-
-                var itemsSource = new List<IconListItem>();
-                for (int i = 0; i < extractedIcons.Length; i++)
-                {
-                    var imageSource = System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(
-                        extractedIcons[i].Handle,
-                        Int32Rect.Empty,
-                        BitmapSizeOptions.FromEmptyOptions());
-
-                    itemsSource.Add(new IconListItem(i, imageSource));
-                }
-                listBoxIcons.ItemsSource = itemsSource;
-                tBoxExtractedIcons.Text = itemsSource.Count > 0 ? "Select the icon" : "Couldn't extract icons";
             }
         }
 
@@ -105,40 +128,41 @@ namespace ScriptRes
             string execName = Path.GetFileName(execPath);
             string execNameNoExt = Path.GetFileNameWithoutExtension(execPath);
 
-            string script = $"@echo off\r\n\r\n" +
-                            "set exitCode=0\r\n" +
+            string script = $"@echo off\r\n" +
+                            "chcp 65001\r\n\r\n" +
+                            "set exitCode=0\r\n\r\n" +
                             $"echo Changing the resolution to {outX}x{outY} ...\r\n" +
                             $"\"{qresPath}\" /x:{outX} /y:{outY} | findstr /i \"Error:\" > nul\r\n" +
                             "if %errorlevel% equ 0 (\r\n" +
                             "    set exitCode=-1\r\n" +
-                            "    goto error\r\n" +
-                            ")\r\n" +
+                            "    echo ERROR: Something went wrong, it is likely that the resolution is not supported.\r\n" +
+                            ")\r\n\r\n" +
                             "echo.\r\n" +
                             $"echo Launching the program \"{execName}\"\r\n" +
+                            $"start /b /wait \"\" \"{execPath}\"\r\n\r\n" +
                             "echo.\r\n" +
-                            $"\"{execPath}\"\r\n\r\n" +
-                            $":loop\r\ntasklist | findstr /i \"{execName}\" > nul\r\n" +
-                            "if not %errorlevel% equ 0 (\r\n" +
-                            "    echo Changing resolution back to normal\r\n" +
-                            $"    \"{qresPath}\" /x:{inX} /y:{inY} > nul\r\n" +
-                             "    goto end\r\n) \r\n\r\n" +
-                            "timeout /t 2 > nul 2>&1\r\n" +
-                            "goto loop\r\n\r\n" +
-                            ":error\r\n" +
-                            "echo ERROR: Something went wrong, it is likely that the resolution is not supported.\r\n\r\n" +
-                            ":end\r\n" +
+                            "echo Changing resolution back to normal\r\n" +
+                            $"\"{qresPath}\" /x:{inX} /y:{inY} | findstr /i \"Error:\" > nul\r\n" +
+                            "if %errorlevel% equ 0 (\r\n" +
+                            "    set exitCode=-1\r\n" +
+                            "    echo ERROR: Something went wrong, it is likely that the resolution is not supported.\r\n" +
+                            ")\r\n\r\n" +
                             "echo.\r\n" +
                             "echo Finish\r\n" +
                             "timeout /t 2 > nul 2>&1\r\n" +
                             "exit /b %exitCode%";
             try
             {
-                string batchLocation = Path.Combine(desktopPath, $"{execNameNoExt}.bat");
+                string scriptsLocation = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Scripts");
+                Directory.CreateDirectory(scriptsLocation);
+
+                string batchLocation = Path.Combine(scriptsLocation, $"{execNameNoExt}.bat");
                 File.WriteAllText(batchLocation, script);
-                string saveLocation = Environment.CurrentDirectory;
+
+                string shortcutName = string.IsNullOrWhiteSpace(tBoxShortcutName.Text) ? execNameNoExt : tBoxShortcutName.Text;
                
-                CreateShortcut(desktopPath, batchLocation, execPath, execNameNoExt);
-                MessageBox.Show($"The shortcut was created: \n{desktopPath}\\{execNameNoExt}.lnk", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                CreateShortcut(desktopPath, batchLocation, _iconsSource, shortcutName);
+                MessageBox.Show($"The shortcut was created: \n{desktopPath}\\{shortcutName}.lnk", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
@@ -151,7 +175,7 @@ namespace ScriptRes
             if (sender is not CheckBox box) return;
 
             tBoxQresPath.IsEnabled = !box.IsChecked ?? false;
-            tBoxQresPath.Text = "./Qres.exe";
+            tBoxQresPath.Text = "./QRes.exe";
             btnChangeQresPath.IsEnabled = !box.IsChecked ?? false;
         }
 

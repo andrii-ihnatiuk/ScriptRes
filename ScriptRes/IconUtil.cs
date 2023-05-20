@@ -59,12 +59,12 @@ namespace ScriptRes
         {
             if (File.Exists(filePath) == false)
             {
-                throw new Exception($"The file: {filePath} doesn't exist or moved.");
+                throw new FileNotFoundException($"The file: {filePath} doesn't exist or moved.");
             }
 
-            Icon[] icons;
+            Icon[] icons = Array.Empty<Icon>();
 
-            if (VerifyMultiIconExtension(filePath))
+            if (VerifyFileWithIcons(filePath))
             {
                 // Get the amount of icons stored
                 uint iconsCount = ExtractIconEx(filePath, -1, null, null, 1);
@@ -92,17 +92,11 @@ namespace ScriptRes
                     }
                 }
             }
-            else
-            {
-                //Icon? icon = Icon.ExtractAssociatedIcon(filePath);
-                //icons = icon == null ? Array.Empty<Icon>() : new Icon[1] { icon };
-                icons = Array.Empty<Icon>();
-            }
 
             return icons;
         }
 
-        private static bool VerifyMultiIconExtension(string filePath)
+        private static bool VerifyFileWithIcons(string filePath)
         {
             return Path.GetExtension(filePath) switch
             {
