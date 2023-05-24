@@ -3,6 +3,7 @@ using ScriptRes.Models;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media.Imaging;
@@ -26,6 +27,9 @@ namespace ScriptRes
             chBoxQresPath.IsChecked = true;
             chBoxQresPath.Checked += CheckBox_Checked;
             chBoxQresPath.Unchecked += CheckBox_Checked;
+
+            tBoxInX.Text = SystemParameters.PrimaryScreenWidth.ToString();
+            tBoxInY.Text = SystemParameters.PrimaryScreenHeight.ToString();
         }
 
         // Handler for buttons to select file locations
@@ -58,12 +62,12 @@ namespace ScriptRes
                     {
                         extractedIcons = IconUtil.ExtractAllIcons(_iconsSource);
                     }
-                    catch (FileNotFoundException exc) 
+                    catch (FileNotFoundException exc)
                     {
                         MessageBox.Show($"An error occured while extracting icons from the file.\nDetails: {exc.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                         return;
                     }
-                    
+
                     // Display all icons in ListBox
                     var itemsSource = new List<IconListItem>();
                     for (int i = 0; i < extractedIcons.Length; i++)
@@ -101,6 +105,7 @@ namespace ScriptRes
 
             if (string.IsNullOrEmpty(inX) || string.IsNullOrEmpty(inY) || string.IsNullOrEmpty(outX) || string.IsNullOrEmpty(outY) || string.IsNullOrEmpty(qresPath))
             {
+                MessageBox.Show("Not all fields are filled in!", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -160,7 +165,7 @@ namespace ScriptRes
                 File.WriteAllText(batchLocation, script);
 
                 string shortcutName = string.IsNullOrWhiteSpace(tBoxShortcutName.Text) ? execNameNoExt : tBoxShortcutName.Text;
-               
+
                 CreateShortcut(desktopPath, batchLocation, _iconsSource, shortcutName);
                 MessageBox.Show($"The shortcut was created: \n{desktopPath}\\{shortcutName}.lnk", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
             }
@@ -170,7 +175,7 @@ namespace ScriptRes
             }
         }
 
-        private void CheckBox_Checked(object sender, EventArgs e) 
+        private void CheckBox_Checked(object sender, EventArgs e)
         {
             if (sender is not CheckBox box) return;
 
@@ -198,5 +203,36 @@ namespace ScriptRes
             }
             shortcut.Save();
         }
+
+        // PreviewTextInput: allow only numbers in the textbox
+        private void TBox_AllowNumbersOnly(object sender, System.Windows.Input.TextCompositionEventArgs e)
+        {
+            if (sender is not TextBox tBox) return;
+            // If selection starts from the first character - forbid to enter 0
+            if (tBox.SelectionStart == 0)
+            {
+                e.Handled = !NumbersMatch().IsMatch(e.Text);
+            }
+            else
+            {
+                e.Handled = !NumbersMatch().IsMatch(tBox.Text + e.Text);
+            }
+        }
+
+        // PreviewTextInput: forbid special characters in shortcut name
+        private void TBoxShortcutName_ValidateShortcutName(object sender, System.Windows.Input.TextCompositionEventArgs e)
+        {
+            if (sender is not TextBox) return;
+            e.Handled = !InvalidShortcutCharactersMatch().IsMatch(e.Text);
+        }
+
+        // Compile time regular expressions
+
+        [GeneratedRegex(@"^[1-9]\d*$")]
+        private static partial Regex NumbersMatch();
+
+        [GeneratedRegex(@"^[^\\/:\*\?""<>|]$")]
+        private static partial Regex InvalidShortcutCharactersMatch();
+
     }
 }
